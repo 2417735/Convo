@@ -3,74 +3,57 @@ import subprocess
 import os
 import uuid
 
-# --- Page Config ---
-st.set_page_config(page_title="HWP to DOCX Converter", page_icon="📄")
+st.set_page_config(page_title="Big File HWP Converter", layout="centered")
 
-# --- Custom Styling for "Good Background" ---
+# --- UI Styling ---
 st.markdown("""
     <style>
-    .stApp {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    }
-    .main .block-container {
-        background-color: rgba(255, 255, 255, 0.95);
-        border-radius: 20px;
-        padding: 3rem;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.2);
-        margin-top: 5vh;
-    }
-    h1 { color: #4A5568; text-align: center; }
+    .stApp { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); color: white; }
+    .main .block-container { background: white; border-radius: 15px; padding: 2rem; color: #333; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("📄 HWP to DOCX")
-st.write("Upload your file below. Even with long Korean names, this version will handle it!")
+st.title("🚀 Large File HWP Converter")
+st.write("Specialized for files up to 500MB.")
 
-uploaded_file = st.file_uploader("Choose an HWP file", type=['hwp'])
+# --- The Logic ---
+uploaded_file = st.file_uploader("Upload your large HWP file", type=['hwp'])
 
 if uploaded_file is not None:
-    # 1. Generate a "Safe" temporary name to avoid command line errors
-    # We use a random ID so multiple users don't overwrite each other
-    safe_id = str(uuid.uuid4())[:8]
-    temp_hwp = f"input_{safe_id}.hwp"
-    temp_docx = f"input_{safe_id}.docx"
+    # Use a unique ID to prevent file collisions
+    file_id = str(uuid.uuid4())[:6]
+    in_file = f"large_input_{file_id}.hwp"
+    out_file = f"large_input_{file_id}.docx"
     
-    # Keep the original name for the final download
-    original_name = uploaded_file.name.rsplit('.', 1)[0] + ".docx"
+    # Process the file
+    with st.status("Processing large file... this may take a moment.") as status:
+        # Save file to disk immediately (avoids keeping it in RAM)
+        with open(in_file, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        
+        # Run LibreOffice with 'lowriter' for better large-doc handling
+        try:
+            result = subprocess.run([
+                'soffice', '--headless', '--convert-to', 'docx', '--outdir', '.', in_file
+            ], capture_output=True, text=True, timeout=120) # 2-minute timeout for big files
 
-    # 2. Save the uploaded file using the SAFE name
-    with open(temp_hwp, "wb") as f:
-        f.write(uploaded_file.getbuffer())
-    
-    st.info("🔄 Converting... large files may take a minute.")
-
-    try:
-        # 3. Run conversion with the safe filename
-        result = subprocess.run([
-            'soffice', '--headless', '--convert-to', 'docx', '--outdir', '.', temp_hwp
-        ], capture_output=True, text=True)
-
-        # 4. Check if the safe docx was created
-        if os.path.exists(temp_docx):
-            with open(temp_docx, "rb") as f:
-                st.success("✨ Success! Your file is ready.")
-                st.download_button(
-                    label=f"⬇️ Download {original_name}",
-                    data=f,
-                    file_name=original_name,
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    use_container_width=True
-                )
-        else:
-            st.error("Conversion failed. The file is likely too large or complex for the server.")
-            with st.expander("Show Technical Error Details"):
-                st.write(result.stderr)
-                st.write("Folder contents:", os.listdir("."))
-
-    except Exception as e:
-        st.error(f"An unexpected error occurred: {e}")
-    
-    finally:
-        # 5. Cleanup temporary files
-        if os.path.exists(temp_hwp): os.remove(temp_hwp)
-        if os.path.exists(temp_docx): os.remove(temp_docx)
+            if os.path.exists(out_file):
+                status.update(label="Conversion Complete!", state="complete")
+                with open(out_file, "rb") as f:
+                    st.download_button(
+                        label="⬇️ Download Resulting Word File",
+                        data=f,
+                        file_name=uploaded_file.name.replace(".hwp", ".docx"),
+                        use_container_width=True
+                    )
+            else:
+                st.error("The server ran out of memory. Try a smaller version of the file.")
+                st.expander("Details").write(result.stderr)
+        
+        except Exception as e:
+            st.error(f"Error: {e}")
+        
+        finally:
+            # Cleanup to keep the server clean
+            if os.path.exists(in_file): os.remove(in_file)
+            if os.path.exists(out_file): os.remove(out_file)
