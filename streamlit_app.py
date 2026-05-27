@@ -1,65 +1,76 @@
 import streamlit as st
 import subprocess
 import os
+import uuid
 
-st.set_page_config(page_title="HWP to DOCX Fix", page_icon="📄")
+# --- Page Config ---
+st.set_page_config(page_title="HWP to DOCX Converter", page_icon="📄")
 
-# --- Custom Styling ---
+# --- Custom Styling for "Good Background" ---
 st.markdown("""
     <style>
-    .main { background-color: #f5f7f9; }
-    .stButton>button { width: 100%; border-radius: 10px; height: 3em; background-color: #4A90E2; color: white; }
+    .stApp {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .main .block-container {
+        background-color: rgba(255, 255, 255, 0.95);
+        border-radius: 20px;
+        padding: 3rem;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        margin-top: 5vh;
+    }
+    h1 { color: #4A5568; text-align: center; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("📄 HWP to DOCX Converter")
+st.title("📄 HWP to DOCX")
+st.write("Upload your file below. Even with long Korean names, this version will handle it!")
 
-uploaded_file = st.file_uploader("Upload HWP file", type=['hwp'])
+uploaded_file = st.file_uploader("Choose an HWP file", type=['hwp'])
 
-if uploaded_file:
-    # Use the original filename to avoid path issues
-    hwp_name = uploaded_file.name
-    docx_name = hwp_name.replace(".hwp", ".docx")
+if uploaded_file is not None:
+    # 1. Generate a "Safe" temporary name to avoid command line errors
+    # We use a random ID so multiple users don't overwrite each other
+    safe_id = str(uuid.uuid4())[:8]
+    temp_hwp = f"input_{safe_id}.hwp"
+    temp_docx = f"input_{safe_id}.docx"
+    
+    # Keep the original name for the final download
+    original_name = uploaded_file.name.rsplit('.', 1)[0] + ".docx"
 
-    # Save file
-    with open(hwp_name, "wb") as f:
+    # 2. Save the uploaded file using the SAFE name
+    with open(temp_hwp, "wb") as f:
         f.write(uploaded_file.getbuffer())
-
-    st.info(f"Converting {hwp_name}...")
+    
+    st.info("🔄 Converting... large files may take a minute.")
 
     try:
-        # THE FIX: We add '--outdir .' to force it to save in the current folder
-        # We also use 'lowriter' which is the specific LibreOffice Writer command
+        # 3. Run conversion with the safe filename
         result = subprocess.run([
-            'soffice', 
-            '--headless', 
-            '--convert-to', 'docx', 
-            '--outdir', '.', 
-            hwp_name
+            'soffice', '--headless', '--convert-to', 'docx', '--outdir', '.', temp_hwp
         ], capture_output=True, text=True)
 
-        # DEBUG: Let's see what LibreOffice said
-        if result.returncode != 0:
-            st.error("Conversion engine failed.")
-            st.code(result.stderr) # This shows the actual error
+        # 4. Check if the safe docx was created
+        if os.path.exists(temp_docx):
+            with open(temp_docx, "rb") as f:
+                st.success("✨ Success! Your file is ready.")
+                st.download_button(
+                    label=f"⬇️ Download {original_name}",
+                    data=f,
+                    file_name=original_name,
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True
+                )
         else:
-            # Check if the file actually exists now
-            if os.path.exists(docx_name):
-                with open(docx_name, "rb") as f:
-                    st.success("Ready for download!")
-                    st.download_button(
-                        label="Click to Download DOCX",
-                        data=f,
-                        file_name=docx_name,
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
-            else:
-                st.warning("Conversion finished but the file wasn't found. Checking directory...")
-                st.write("Files in folder:", os.listdir("."))
+            st.error("Conversion failed. The file is likely too large or complex for the server.")
+            with st.expander("Show Technical Error Details"):
+                st.write(result.stderr)
+                st.write("Folder contents:", os.listdir("."))
 
     except Exception as e:
-        st.error(f"System Error: {e}")
+        st.error(f"An unexpected error occurred: {e}")
     
-    # Cleanup (Optional: keep these commented out while debugging)
-    # os.remove(hwp_name)
-    # if os.path.exists(docx_name): os.remove(docx_name)
+    finally:
+        # 5. Cleanup temporary files
+        if os.path.exists(temp_hwp): os.remove(temp_hwp)
+        if os.path.exists(temp_docx): os.remove(temp_docx)
