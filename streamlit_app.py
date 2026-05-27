@@ -2,58 +2,109 @@ import streamlit as st
 import subprocess
 import os
 import uuid
+import time
 
-st.set_page_config(page_title="Big File HWP Converter", layout="centered")
+# --- Page Setup ---
+st.set_page_config(page_title="HWP Converter", page_icon="📄", layout="centered")
 
-# --- UI Styling ---
+# --- Simple Black Aesthetic Styling ---
 st.markdown("""
     <style>
-    .stApp { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); color: white; }
-    .main .block-container { background: white; border-radius: 15px; padding: 2rem; color: #333; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+    /* Dark background for the whole app */
+    .stApp {
+        background-color: #0e1117;
+        color: #ffffff;
+    }
+    /* Simple black card for the content */
+    .main .block-container {
+        background-color: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 10px;
+        padding: 2.5rem;
+        margin-top: 5vh;
+    }
+    /* Clean white buttons */
+    .stButton>button {
+        background-color: #ffffff;
+        color: #000000;
+        border-radius: 5px;
+        font-weight: bold;
+        border: none;
+    }
+    .stButton>button:hover {
+        background-color: #e2e2e2;
+        color: #000000;
+    }
+    /* Hide Streamlit branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🚀 Large File HWP Converter")
-st.write("Specialized for files up to 500MB.")
+# --- UI Layout ---
+st.title("Convo")
+st.markdown("### Upload your HWP to convert into DOCX")
+st.markdown("---")
 
-# --- The Logic ---
-uploaded_file = st.file_uploader("Upload your large HWP file", type=['hwp'])
+uploaded_file = st.file_uploader("", type=['hwp'])
 
 if uploaded_file is not None:
-    # Use a unique ID to prevent file collisions
+    # Safe naming for the 99MB file issue
     file_id = str(uuid.uuid4())[:6]
-    in_file = f"large_input_{file_id}.hwp"
-    out_file = f"large_input_{file_id}.docx"
+    in_file = f"conv_{file_id}.hwp"
+    out_file = f"conv_{file_id}.docx"
     
-    # Process the file
-    with st.status("Processing large file... this may take a moment.") as status:
-        # Save file to disk immediately (avoids keeping it in RAM)
-        with open(in_file, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        
-        # Run LibreOffice with 'lowriter' for better large-doc handling
-        try:
-            result = subprocess.run([
-                'soffice', '--headless', '--convert-to', 'docx', '--outdir', '.', in_file
-            ], capture_output=True, text=True, timeout=120) # 2-minute timeout for big files
+    # Save the file to disk
+    with open(in_file, "wb") as f:
+        f.write(uploaded_file.getbuffer())
 
-            if os.path.exists(out_file):
-                status.update(label="Conversion Complete!", state="complete")
-                with open(out_file, "rb") as f:
-                    st.download_button(
-                        label="⬇️ Download Resulting Word File",
-                        data=f,
-                        file_name=uploaded_file.name.replace(".hwp", ".docx"),
-                        use_container_width=True
-                    )
-            else:
-                st.error("The server ran out of memory. Try a smaller version of the file.")
-                st.expander("Details").write(result.stderr)
+    # --- Progress UI ---
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    status_text.text("Initializing conversion...")
+
+    try:
+        # Start conversion process
+        process = subprocess.Popen([
+            'soffice', '--headless', '--convert-to', 'docx', '--outdir', '.', in_file
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        # Simulate progress bar while converting
+        percent = 0
+        while process.poll() is None:
+            time.sleep(0.7)
+            if percent < 90:
+                percent += 3
+                progress_bar.progress(percent)
+                status_text.text(f"Processing large document... {percent}%")
         
-        except Exception as e:
-            st.error(f"Error: {e}")
-        
-        finally:
-            # Cleanup to keep the server clean
+        # Check if output exists
+        if os.path.exists(out_file):
+            progress_bar.progress(100)
+            status_text.text("Conversion Complete.")
+            
+            with open(out_file, "rb") as f:
+                # The Download Option
+                st.download_button(
+                    label="DOWNLOAD DOCX",
+                    data=f,
+                    file_name=uploaded_file.name.replace(".hwp", ".docx"),
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True
+                )
+            st.success("File processed successfully.")
+        else:
+            st.error("Conversion failed. Please try a smaller file or check for corruption.")
+            
+    except Exception as e:
+        st.error(f"Error: {e}")
+    
+    finally:
+        # Cleanup
+        if os.listdir('.'): # ensure we don't crash if folder is empty
             if os.path.exists(in_file): os.remove(in_file)
             if os.path.exists(out_file): os.remove(out_file)
+
+else:
+    st.info("Awaiting file upload...")
